@@ -6,8 +6,6 @@ function PlayerCell() {
     this.cellType = 0;
     this.recombineTicks = 0; // Ticks passed after the cell has split
     this.shouldRecombine = false; // Should the cell combine. If true, collision with own cells happens
-
-    this.ignoreCollision = false; // This is used by player cells so that they dont cause any problems when splitting
 }
 
 module.exports = PlayerCell;
@@ -42,8 +40,9 @@ PlayerCell.prototype.calcMergeTime = function(base) {
     // As time passes on, recombineTicks gets larger, instead of getting smaller.
     // When the owner has only 1 cell, ticks and shouldRecombine will be reset by gameserver.
     var r = false;
-    if (base == 0) {
-        r = true; // If base recombine time is 0, can almost instantly recombine
+    if (base == 0 || this.owner.mergeOverride) {
+        // Instant recombine in config or merge command was triggered for this client
+        r = true;
     } else {
         var rec = Math.floor(base + ((0.02 * this.mass))); // base seconds + 0.02% of mass
         if (this.recombineTicks > rec) r = true; // Can combine with other cells
@@ -73,11 +72,13 @@ PlayerCell.prototype.calcMove = function(x2, y2, gameServer) {
     var x1 = this.position.x + (speed * Math.sin(angle));
     var y1 = this.position.y + (speed * Math.cos(angle));
 
+    var collidedCells = 0; // Amount of cells collided this tick
+
     // Collision check for other cells
     for (var i = 0; i < this.owner.cells.length; i++) {
         var cell = this.owner.cells[i];
 
-        if ((this.nodeId == cell.nodeId) || (this.ignoreCollision) || (cell.ignoreCollision)) {
+        if (this.nodeId == cell.nodeId) {
             continue;
         }
 
@@ -90,9 +91,12 @@ PlayerCell.prototype.calcMove = function(x2, y2, gameServer) {
             if (dist < collisionDist) { // Collided
                 // The moving cell pushes the colliding cell
                 // Strength however depends on cell1 speed divided by cell2 speed
+                collidedCells++;
+                if (this.collisionRestoreTicks > 0 || cell.collisionRestoreTicks > 0) continue;
+
                 var c1Speed = this.getSpeed();
                 var c2Speed = cell.getSpeed();
-                
+
                 var mult = c1Speed / c2Speed / 2;
                 if (mult < 0.15) mult = 0.15;
                 if (mult > 0.9) mult = 0.9;
@@ -110,6 +114,8 @@ PlayerCell.prototype.calcMove = function(x2, y2, gameServer) {
     }
 
     gameServer.gameMode.onCellMove(x1, y1, this);
+
+    if (collidedCells == 0) this.collisionRestoreTicks = 0; // Automate process of collision restoration as no cells are colliding
 
     // Check to ensure we're not passing the world border (shouldn't get closer than a quarter of the cell's diameter)
     if (x1 < config.borderLeft + r / 2) {
@@ -132,7 +138,7 @@ PlayerCell.prototype.calcMove = function(x2, y2, gameServer) {
 // Override
 
 PlayerCell.prototype.getEatingRange = function() {
-    return this.getSize() * .4;
+    return this.getSize() / 3.14;
 };
 
 PlayerCell.prototype.onConsume = function(consumer, gameServer) {
@@ -165,7 +171,7 @@ PlayerCell.prototype.onRemove = function(gameServer) {
 };
 
 PlayerCell.prototype.moveDone = function(gameServer) {
-    this.ignoreCollision = false;
+    // Well, nothing.
 };
 
 // Lib
